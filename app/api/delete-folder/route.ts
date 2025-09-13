@@ -2,6 +2,16 @@ import { NextRequest, NextResponse } from 'next/server';
 import { promises as fs } from 'fs';
 import path from 'path';
 
+interface FolderStructure {
+  [key: string]: {
+    type: 'folder';
+    name: string;
+    path: string;
+    children?: FolderStructure;
+    createdAt: string;
+  };
+}
+
 // Recursive function to delete directory and all its contents
 async function deleteDirectoryRecursive(dirPath: string): Promise<void> {
   try {
@@ -36,46 +46,82 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    // Ensure the folder is within the public directory
-    const publicDir = path.join(process.cwd(), 'public');
-    const fullPath = path.join(publicDir, folderPath);
+    // First, try to delete from virtual folder structure
+    const structureFilePath = path.join(process.cwd(), 'folder-structure.json');
+    let folderStructure: FolderStructure = {};
+    let isVirtualFolder = false;
     
-    // Security check: ensure the path is within public directory
-    if (!fullPath.startsWith(publicDir)) {
-      return NextResponse.json(
-        { error: 'Invalid folder path' },
-        { status: 403 }
-      );
-    }
-
-    // Prevent deletion of the entire public directory
-    if (fullPath === publicDir) {
-      return NextResponse.json(
-        { error: 'Cannot delete the entire public directory' },
-        { status: 403 }
-      );
-    }
-
-    // Check if folder exists
     try {
-      const stats = await fs.stat(fullPath);
-      if (!stats.isDirectory()) {
-        return NextResponse.json(
-          { error: 'Path is not a directory' },
-          { status: 400 }
+      const existingData = await fs.readFile(structureFilePath, 'utf-8');
+      folderStructure = JSON.parse(existingData);
+      
+      // Check if this is a virtual folder
+      if (folderStructure[folderPath]) {
+        isVirtualFolder = true;
+        
+        // Remove the virtual folder and any subfolders
+        const foldersToDelete = Object.keys(folderStructure).filter(key => 
+          key === folderPath || key.startsWith(folderPath + '/')
         );
+        
+        foldersToDelete.forEach(key => {
+          delete folderStructure[key];
+        });
+        
+        // Save updated structure
+        await fs.writeFile(structureFilePath, JSON.stringify(folderStructure, null, 2));
       }
     } catch (error) {
-      return NextResponse.json(
-        { error: 'Folder not found' },
-        { status: 404 }
-      );
+      // File doesn't exist, continue with physical folder deletion
+      console.log('No virtual folder structure found');
     }
 
-    // Delete the folder and all its contents
-    await deleteDirectoryRecursive(fullPath);
+    // If it's not a virtual folder, try to delete physical folder
+    if (!isVirtualFolder) {
+      // Ensure the folder is within the public directory
+      const publicDir = path.join(process.cwd(), 'public');
+      const fullPath = path.join(publicDir, folderPath);
+      
+      // Security check: ensure the path is within public directory
+      if (!fullPath.startsWith(publicDir)) {
+        return NextResponse.json(
+          { error: 'Invalid folder path' },
+          { status: 403 }
+        );
+      }
+
+      // Prevent deletion of the entire public directory
+      if (fullPath === publicDir) {
+        return NextResponse.json(
+          { error: 'Cannot delete the entire public directory' },
+          { status: 403 }
+        );
+      }
+
+      // Check if physical folder exists
+      try {
+        const stats = await fs.stat(fullPath);
+        if (!stats.isDirectory()) {
+          return NextResponse.json(
+            { error: 'Path is not a directory' },
+            { status: 400 }
+          );
+        }
+        
+        // Delete the physical folder and all its contents
+        await deleteDirectoryRecursive(fullPath);
+      } catch (error) {
+        // If neither virtual nor physical folder exists, return error
+        if (!isVirtualFolder) {
+          return NextResponse.json(
+            { error: 'Folder not found' },
+            { status: 404 }
+          );
+        }
+      }
+    }
     
-    // Also remove related entries from access log
+    // Remove related entries from access log
     try {
       const accessLogPath = path.join(process.cwd(), 'access-log.json');
       const accessLogData = await fs.readFile(accessLogPath, 'utf-8');

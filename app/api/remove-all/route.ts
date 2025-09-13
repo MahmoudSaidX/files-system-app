@@ -28,24 +28,25 @@ export async function DELETE(request: NextRequest) {
   try {
     const publicDir = path.join(process.cwd(), 'public');
     
-    // Check if public directory exists
+    // Clear virtual folder structure
+    try {
+      const structureFilePath = path.join(process.cwd(), 'folder-structure.json');
+      await fs.writeFile(structureFilePath, JSON.stringify({}, null, 2));
+    } catch (error) {
+      console.warn('Could not clear virtual folder structure:', error);
+    }
+    
+    // Check if public directory exists and clear it
     try {
       const stats = await fs.stat(publicDir);
-      if (!stats.isDirectory()) {
-        return NextResponse.json(
-          { error: 'Public directory not found' },
-          { status: 404 }
-        );
+      if (stats.isDirectory()) {
+        // Clear all contents of the public directory
+        await clearDirectoryContents(publicDir);
       }
     } catch (error) {
-      return NextResponse.json(
-        { error: 'Public directory not found' },
-        { status: 404 }
-      );
+      // Public directory might not exist in serverless environment, that's okay
+      console.log('Public directory not accessible, cleared virtual folders only');
     }
-
-    // Clear all contents of the public directory
-    await clearDirectoryContents(publicDir);
     
     // Clear the access log
     try {
@@ -59,7 +60,7 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json(
       { 
         message: 'All files and folders removed successfully',
-        cleared: 'public directory contents'
+        cleared: 'virtual folders and public directory contents'
       },
       { status: 200 }
     );
