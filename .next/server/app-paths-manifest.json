@@ -1,9 +1,0 @@
-{
-  "/_not-found/page": "app/_not-found/page.js",
-  "/public-folder/[...path]/page": "app/public-folder/[...path]/page.js",
-  "/api/public-folders/route": "app/api/public-folders/route.js",
-  "/api/delete-folder/route": "app/api/delete-folder/route.js",
-  "/page": "app/page.js",
-  "/api/folders/route": "app/api/folders/route.js",
-  "/api/remove-all/route": "app/api/remove-all/route.js"
-}
