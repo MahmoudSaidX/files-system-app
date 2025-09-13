@@ -28,14 +28,6 @@ export async function DELETE(request: NextRequest) {
   try {
     const publicDir = path.join(process.cwd(), 'public');
     
-    // Clear virtual folder structure
-    try {
-      const structureFilePath = path.join(process.cwd(), 'folder-structure.json');
-      await fs.writeFile(structureFilePath, JSON.stringify({}, null, 2));
-    } catch (error) {
-      console.warn('Could not clear virtual folder structure:', error);
-    }
-    
     // Check if public directory exists and clear it
     try {
       const stats = await fs.stat(publicDir);
@@ -43,31 +35,44 @@ export async function DELETE(request: NextRequest) {
         // Clear all contents of the public directory
         await clearDirectoryContents(publicDir);
       }
-    } catch (error) {
-      // Public directory might not exist in serverless environment, that's okay
-      console.log('Public directory not accessible, cleared virtual folders only');
+    } catch (error: any) {
+      if (error.code === 'ENOENT') {
+        return NextResponse.json(
+          { error: 'Public directory not found' },
+          { status: 404 }
+        );
+      }
+      throw error;
     }
     
-    // Clear the access log
+    // Clear access log
     try {
       const accessLogPath = path.join(process.cwd(), 'access-log.json');
       await fs.writeFile(accessLogPath, JSON.stringify([], null, 2));
     } catch (error) {
-      // Access log clearing is not critical, continue
-      console.warn('Could not clear access log:', error);
+      // Access log cleanup is optional, don't fail the request
+      console.log('Could not clear access log:', error);
     }
-
-    return NextResponse.json(
-      { 
-        message: 'All files and folders removed successfully',
-        cleared: 'virtual folders and public directory contents'
-      },
-      { status: 200 }
-    );
+    
+    return NextResponse.json({ 
+      success: true, 
+      message: 'All folders and files removed successfully' 
+    });
+    
   } catch (error) {
-    console.error('Error removing all files:', error);
+    console.error('Error removing all folders:', error);
+    
+    if (error instanceof Error) {
+      if (error.message.includes('EROFS') || error.message.includes('read-only')) {
+        return NextResponse.json(
+          { error: 'File system is read-only. Physical folder removal not supported in this environment.' },
+          { status: 500 }
+        );
+      }
+    }
+    
     return NextResponse.json(
-      { error: 'Failed to remove all files and folders' },
+      { error: 'Failed to remove all folders' },
       { status: 500 }
     );
   }

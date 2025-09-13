@@ -8,7 +8,7 @@ import { getFolderIcon, getFileIcon } from '@/lib/icons';
 import { useFolderListRefresh } from '@/lib/refreshContext';
 import { PublicItem, PublicFolderListProps } from '@/types';
 import { formatFileSize } from '@/lib/utils';
-import { Folder, File, Trash2, MoreVertical } from 'lucide-react';
+import { Folder, File, Trash2, MoreVertical, ArrowUp } from 'lucide-react';
 
 /**
  * PublicFolderList component displays a navigable folder structure
@@ -150,10 +150,30 @@ export function PublicFolderList({ currentPath = '' }: PublicFolderListProps) {
 
   const currentFolder = getCurrentFolder(rootFolder, currentPath);
 
+  // Get parent path for "Go Up" functionality
+  const getParentPath = () => {
+    if (!currentPath) return null;
+    const pathParts = currentPath.split('/');
+    return pathParts.length > 1 ? pathParts.slice(0, -1).join('/') : '';
+  };
+
+  const parentNavigationPath = getParentPath();
+
   return (
     <div className="space-y-6">
       {/* Action Buttons */}
       <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
+        {/* Go Up Button - only show if not at root */}
+         {currentPath && (
+           <Link
+             href={parentNavigationPath ? `/public-folder/${encodeURIComponent(parentNavigationPath)}` : '/'}
+             className="btn btn-secondary flex items-center justify-center gap-2"
+           >
+             <ArrowUp className="w-4 h-4 flex-shrink-0" />
+             <span className="hidden sm:inline">Go Up</span>
+             <span className="sm:hidden">Up</span>
+           </Link>
+         )}
         <CreateFolderButton parentPath={currentPath} />
         <CreateFileButton parentPath={currentPath} />
         <button 
@@ -187,20 +207,36 @@ export function PublicFolderList({ currentPath = '' }: PublicFolderListProps) {
       ) : (
         <div className="grid-responsive">
           {currentFolder.children.map((item) => {
-            const itemPath = currentPath ? `${currentPath}/${item.name}` : item.name;
+            // Ensure item.name is not undefined or empty
+            const safeName = item.name && item.name.trim() ? item.name.trim() : 'Unknown Item';
+            
+            // Prevent recursive "Unknown" paths by checking if we're already in an unknown path
+            const isInUnknownPath = currentPath.includes('Unknown');
+            const isUnknownItem = safeName.includes('Unknown');
+            
+            // If we're already in an unknown path and this is another unknown item, skip it
+            if (isInUnknownPath && isUnknownItem) {
+              return null;
+            }
+            
+            const itemPath = currentPath ? `${currentPath}/${safeName}` : safeName;
+            // Create the navigation path by encoding each segment separately to avoid double encoding
+            const navigationPath = currentPath 
+              ? `${currentPath}/${encodeURIComponent(safeName)}`
+              : encodeURIComponent(safeName);
             
             if (item.type === 'folder') {
               return (
                 <div key={item.id} className="group relative border border-gray-200 rounded-lg hover:border-blue-300 hover:shadow-md transition-all duration-200">
                   <Link
-                    href={`/public-folder/${encodeURIComponent(itemPath)}`}
+                    href={`/public-folder/${navigationPath}`}
                     className="block p-3 sm:p-4 active:scale-95 touch-manipulation"
                   >
                     <div className="flex items-center space-x-3">
                       <Folder className="w-6 h-6 sm:w-8 sm:h-8 text-blue-500 group-hover:text-blue-600 flex-shrink-0" />
                       <div className="flex-1 min-w-0">
                         <h3 className="text-sm sm:text-base font-medium text-gray-900 truncate group-hover:text-blue-600">
-                          {item.name}
+                          {safeName}
                         </h3>
                         <p className="text-xs sm:text-sm text-gray-500 mt-1">
                           {item.children?.length || 0} {(item.children?.length || 0) === 1 ? 'item' : 'items'}
@@ -211,7 +247,7 @@ export function PublicFolderList({ currentPath = '' }: PublicFolderListProps) {
                   <button
                     onClick={(e) => {
                       e.preventDefault();
-                      setDeleteConfirm({type: 'folder', path: itemPath, name: item.name});
+                      setDeleteConfirm({type: 'folder', path: itemPath, name: safeName});
                     }}
                     disabled={deleting === itemPath}
                     className="absolute top-2 right-2 p-1.5 rounded-md text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100 disabled:opacity-50"
@@ -262,7 +298,7 @@ export function PublicFolderList({ currentPath = '' }: PublicFolderListProps) {
                       <File className="w-6 h-6 sm:w-8 sm:h-8 text-gray-500 group-hover:text-blue-600 flex-shrink-0" />
                       <div className="flex-1 min-w-0">
                         <h3 className="text-sm sm:text-base font-medium text-gray-900 truncate group-hover:text-blue-600">
-                          {item.name}
+                          {safeName}
                         </h3>
                         <p className="text-xs sm:text-sm text-gray-500 mt-1">
                           {item.size ? `${(item.size / 1024).toFixed(1)} KB` : 'File'} • <span className="hidden sm:inline">Click to open</span><span className="sm:hidden">Tap to open</span>
@@ -273,7 +309,7 @@ export function PublicFolderList({ currentPath = '' }: PublicFolderListProps) {
                   <button
                     onClick={(e) => {
                       e.preventDefault();
-                      setDeleteConfirm({type: 'file', path: itemPath, name: item.name});
+                      setDeleteConfirm({type: 'file', path: itemPath, name: safeName});
                     }}
                     disabled={deleting === itemPath}
                     className="absolute top-2 right-2 p-1.5 rounded-md text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100 disabled:opacity-50"

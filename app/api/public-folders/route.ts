@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { readdir, stat, readFile } from 'fs/promises';
+import { readdir, stat } from 'fs/promises';
 import { join } from 'path';
 
 export interface PublicItem {
@@ -9,16 +9,6 @@ export interface PublicItem {
   path: string;
   children?: PublicItem[];
   size?: number;
-}
-
-interface FolderStructure {
-  [key: string]: {
-    type: 'folder';
-    name: string;
-    path: string;
-    children?: FolderStructure;
-    createdAt: string;
-  };
 }
 
 /**
@@ -75,89 +65,31 @@ async function readItemsRecursive(
 }
 
 /**
- * Reads virtual folders from JSON file
- */
-async function readVirtualFolders(): Promise<FolderStructure> {
-  try {
-    const structureFilePath = join(process.cwd(), 'folder-structure.json');
-    const data = await readFile(structureFilePath, 'utf-8');
-    return JSON.parse(data);
-  } catch (error) {
-    // File doesn't exist or is empty
-    return {};
-  }
-}
-
-/**
- * Merges virtual folders with actual files
- */
-function mergeVirtualAndActualItems(
-  actualItems: PublicItem[],
-  virtualFolders: FolderStructure,
-  currentPath: string = ''
-): PublicItem[] {
-  const result: PublicItem[] = [...actualItems];
-  
-  // Add virtual folders that match the current path level
-  Object.values(virtualFolders).forEach(folder => {
-    const folderParentPath = folder.path.includes('/') 
-      ? folder.path.substring(0, folder.path.lastIndexOf('/'))
-      : '';
-    
-    // Only add folders that belong to the current path level
-    if (folderParentPath === currentPath) {
-      const existingFolder = result.find(item => 
-        item.type === 'folder' && item.name === folder.name
-      );
-      
-      if (!existingFolder) {
-        result.push({
-          id: folder.path,
-          name: folder.name,
-          type: 'folder',
-          path: folder.path,
-          children: [] // Will be populated recursively if needed
-        });
-      }
-    }
-  });
-  
-  return result.sort((a, b) => {
-    // Folders first, then files
-    if (a.type !== b.type) {
-      return a.type === 'folder' ? -1 : 1;
-    }
-    return a.name.localeCompare(b.name);
-  });
-}
-
-/**
  * GET /api/public-folders
- * Returns all folders and files, including virtual folders
+ * Returns all folders and files from the public directory
  */
 export async function GET() {
   try {
     const publicDir = join(process.cwd(), 'public');
-    const virtualFolders = await readVirtualFolders();
     
-    // Read actual files from public directory
-    let actualItems: PublicItem[] = [];
+    // Read files from public directory
+    let items: PublicItem[] = [];
     try {
-      actualItems = await readItemsRecursive(publicDir);
+      items = await readItemsRecursive(publicDir);
     } catch (error) {
-      console.log('Public directory not accessible, using virtual folders only');
+      console.log('Public directory not accessible, returning empty structure');
     }
     
-    // Merge virtual folders with actual items
-    const mergedItems = mergeVirtualAndActualItems(actualItems, virtualFolders);
-    
-    return NextResponse.json({
+    // Create the root structure
+    const root: PublicItem = {
       id: 'public-root',
       name: 'Public Files',
       type: 'folder',
       path: '',
-      children: mergedItems
-    });
+      children: items
+    };
+    
+    return NextResponse.json(root);
   } catch (error) {
     console.error('Error reading public items:', error);
     return NextResponse.json(

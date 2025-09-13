@@ -17,10 +17,12 @@ function buildBreadcrumbPath(folderId: string): Array<{ id: string; name: string
     
     let currentPath = '';
     segments.forEach((segment, index) => {
-      currentPath = currentPath ? `${currentPath}/${segment}` : segment;
+      // Ensure segment is not undefined or empty
+      const safeSegment = segment && segment.trim() ? segment.trim() : 'Unknown';
+      currentPath = currentPath ? `${currentPath}/${safeSegment}` : safeSegment;
       breadcrumbs.push({
         id: `public-folder/${currentPath}`,
-        name: decodeURIComponent(segment),
+        name: decodeURIComponent(safeSegment),
         href: `/public-folder/${encodeURIComponent(currentPath)}`
       });
     });

@@ -2,16 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { promises as fs } from 'fs';
 import path from 'path';
 
-interface FolderStructure {
-  [key: string]: {
-    type: 'folder';
-    name: string;
-    path: string;
-    children?: FolderStructure;
-    createdAt: string;
-  };
-}
-
 // Recursive function to delete directory and all its contents
 async function deleteDirectoryRecursive(dirPath: string): Promise<void> {
   try {
@@ -46,79 +36,46 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    // First, try to delete from virtual folder structure
-    const structureFilePath = path.join(process.cwd(), 'folder-structure.json');
-    let folderStructure: FolderStructure = {};
-    let isVirtualFolder = false;
+    // Build the full path to the folder in public directory
+    const publicDir = path.join(process.cwd(), 'public');
+    const fullPath = path.join(publicDir, folderPath);
     
-    try {
-      const existingData = await fs.readFile(structureFilePath, 'utf-8');
-      folderStructure = JSON.parse(existingData);
-      
-      // Check if this is a virtual folder
-      if (folderStructure[folderPath]) {
-        isVirtualFolder = true;
-        
-        // Remove the virtual folder and any subfolders
-        const foldersToDelete = Object.keys(folderStructure).filter(key => 
-          key === folderPath || key.startsWith(folderPath + '/')
-        );
-        
-        foldersToDelete.forEach(key => {
-          delete folderStructure[key];
-        });
-        
-        // Save updated structure
-        await fs.writeFile(structureFilePath, JSON.stringify(folderStructure, null, 2));
-      }
-    } catch (error) {
-      // File doesn't exist, continue with physical folder deletion
-      console.log('No virtual folder structure found');
+    // Security check: ensure the path is within public directory
+    if (!fullPath.startsWith(publicDir)) {
+      return NextResponse.json(
+        { error: 'Invalid folder path' },
+        { status: 403 }
+      );
     }
 
-    // If it's not a virtual folder, try to delete physical folder
-    if (!isVirtualFolder) {
-      // Ensure the folder is within the public directory
-      const publicDir = path.join(process.cwd(), 'public');
-      const fullPath = path.join(publicDir, folderPath);
+    // Prevent deletion of the entire public directory
+    if (fullPath === publicDir) {
+      return NextResponse.json(
+        { error: 'Cannot delete the entire public directory' },
+        { status: 403 }
+      );
+    }
+
+    // Check if physical folder exists and delete it
+    try {
+      const stats = await fs.stat(fullPath);
+      if (!stats.isDirectory()) {
+        return NextResponse.json(
+          { error: 'Path is not a directory' },
+          { status: 400 }
+        );
+      }
       
-      // Security check: ensure the path is within public directory
-      if (!fullPath.startsWith(publicDir)) {
+      // Delete the physical folder and all its contents
+      await deleteDirectoryRecursive(fullPath);
+    } catch (error: any) {
+      if (error.code === 'ENOENT') {
         return NextResponse.json(
-          { error: 'Invalid folder path' },
-          { status: 403 }
+          { error: 'Folder not found' },
+          { status: 404 }
         );
       }
-
-      // Prevent deletion of the entire public directory
-      if (fullPath === publicDir) {
-        return NextResponse.json(
-          { error: 'Cannot delete the entire public directory' },
-          { status: 403 }
-        );
-      }
-
-      // Check if physical folder exists
-      try {
-        const stats = await fs.stat(fullPath);
-        if (!stats.isDirectory()) {
-          return NextResponse.json(
-            { error: 'Path is not a directory' },
-            { status: 400 }
-          );
-        }
-        
-        // Delete the physical folder and all its contents
-        await deleteDirectoryRecursive(fullPath);
-      } catch (error) {
-        // If neither virtual nor physical folder exists, return error
-        if (!isVirtualFolder) {
-          return NextResponse.json(
-            { error: 'Folder not found' },
-            { status: 404 }
-          );
-        }
-      }
+      throw error;
     }
     
     // Remove related entries from access log
@@ -127,23 +84,34 @@ export async function DELETE(request: NextRequest) {
       const accessLogData = await fs.readFile(accessLogPath, 'utf-8');
       const accessLog = JSON.parse(accessLogData);
       
-      // Filter out files that were in the deleted folder
-      const updatedLog = accessLog.filter((entry: any) => 
-        !entry.filePath.startsWith(folderPath + '/') && entry.filePath !== folderPath
+      // Filter out entries related to the deleted folder
+      const filteredLog = accessLog.filter((entry: any) => 
+        !entry.path || (!entry.path.startsWith(folderPath + '/') && entry.path !== folderPath)
       );
       
-      await fs.writeFile(accessLogPath, JSON.stringify(updatedLog, null, 2));
+      await fs.writeFile(accessLogPath, JSON.stringify(filteredLog, null, 2));
     } catch (error) {
-      // Access log update is not critical, continue
-      console.warn('Could not update access log:', error);
+      // Access log cleanup is optional, don't fail the request
+      console.log('Could not update access log:', error);
     }
-
-    return NextResponse.json(
-      { message: 'Folder deleted successfully', path: folderPath },
-      { status: 200 }
-    );
+    
+    return NextResponse.json({ 
+      success: true, 
+      message: 'Folder deleted successfully' 
+    });
+    
   } catch (error) {
     console.error('Error deleting folder:', error);
+    
+    if (error instanceof Error) {
+      if (error.message.includes('EROFS') || error.message.includes('read-only')) {
+        return NextResponse.json(
+          { error: 'File system is read-only. Physical folder deletion not supported in this environment.' },
+          { status: 500 }
+        );
+      }
+    }
+    
     return NextResponse.json(
       { error: 'Failed to delete folder' },
       { status: 500 }

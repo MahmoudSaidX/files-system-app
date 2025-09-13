@@ -8,7 +8,9 @@ interface PublicFolderPageProps {
 }
 
 export default function PublicFolderPage({ params }: PublicFolderPageProps) {
-  const currentPath = params.path ? params.path.join('/') : '';
+  // Decode each path segment to handle URL encoding properly
+  const decodedPath = params.path ? params.path.map(segment => decodeURIComponent(segment)) : [];
+  const currentPath = decodedPath.join('/');
   
   return (
     <div className="space-y-6">
@@ -17,11 +19,11 @@ export default function PublicFolderPage({ params }: PublicFolderPageProps) {
       <div className="space-y-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">
-            {currentPath ? decodeURIComponent(params.path[params.path.length - 1]) : 'Public Files'}
+            {currentPath ? decodedPath[decodedPath.length - 1] : 'Public Files'}
           </h1>
           <p className="text-gray-600 mt-1">
             {currentPath 
-              ? `Browse files and folders in ${decodeURIComponent(currentPath)}`
+              ? `Browse files and folders in ${currentPath}`
               : 'Browse and manage files in the public directory'
             }
           </p>

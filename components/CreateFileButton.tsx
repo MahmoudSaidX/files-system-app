@@ -58,7 +58,7 @@ export function CreateFileButton({ folderId, parentPath, onSuccess }: CreateFile
 
       // Add parentPath to formData for public folder uploads
       if (parentPath !== undefined) {
-        formData.append('parentPath', parentPath);
+        formData.append('path', parentPath);
       }
       
       const response = await fetch('/api/upload', {

@@ -1,21 +1,11 @@
 import { NextResponse } from 'next/server';
-import { readFile, writeFile } from 'fs/promises';
+import { mkdir } from 'fs/promises';
 import { join } from 'path';
 import { revalidatePath } from 'next/cache';
 
-interface FolderStructure {
-  [key: string]: {
-    type: 'folder';
-    name: string;
-    path: string;
-    children?: FolderStructure;
-    createdAt: string;
-  };
-}
-
 /**
  * POST /api/folders
- * Creates a new virtual folder entry (Vercel-compatible)
+ * Creates a new physical folder in the public directory
  */
 export async function POST(req: Request) {
   try {
@@ -38,41 +28,37 @@ export async function POST(req: Request) {
       );
     }
     
-    // Build the virtual folder path
+    // Build the physical folder path
+    const publicDir = join(process.cwd(), 'public');
     const folderPath = parentPath 
-      ? `${parentPath}/${sanitizedName}`
-      : sanitizedName;
+      ? join(publicDir, parentPath, sanitizedName)
+      : join(publicDir, sanitizedName);
     
-    // Read existing folder structure from JSON file
-    const structureFilePath = join(process.cwd(), 'folder-structure.json');
-    let folderStructure: FolderStructure = {};
-    
-    try {
-      const existingData = await readFile(structureFilePath, 'utf-8');
-      folderStructure = JSON.parse(existingData);
-    } catch (error) {
-      // File doesn't exist yet, start with empty structure
-      console.log('Creating new folder structure file');
-    }
-    
-    // Check if folder already exists
-    if (folderStructure[folderPath]) {
+    // Security check: ensure the path is within public directory
+    if (!folderPath.startsWith(publicDir)) {
       return NextResponse.json(
-        { error: 'Folder already exists' },
-        { status: 409 }
+        { error: 'Invalid folder path' },
+        { status: 403 }
       );
     }
     
-    // Add new folder to structure
-    folderStructure[folderPath] = {
-      type: 'folder',
-      name: sanitizedName,
-      path: folderPath,
-      createdAt: new Date().toISOString()
-    };
+    // Create the physical folder
+    try {
+      await mkdir(folderPath, { recursive: true });
+    } catch (error: any) {
+      if (error.code === 'EEXIST') {
+        return NextResponse.json(
+          { error: 'Folder already exists' },
+          { status: 409 }
+        );
+      }
+      throw error;
+    }
     
-    // Save updated structure
-    await writeFile(structureFilePath, JSON.stringify(folderStructure, null, 2));
+    // Build relative path for response
+    const relativePath = parentPath 
+      ? `${parentPath}/${sanitizedName}`
+      : sanitizedName;
     
     // Revalidate relevant paths
     revalidatePath('/public-files');
@@ -81,7 +67,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ 
       success: true, 
       folderName: sanitizedName,
-      path: folderPath
+      path: relativePath
     });
     
   } catch (error) {
@@ -98,7 +84,7 @@ export async function POST(req: Request) {
       // Check for specific Vercel/serverless errors
       if (error.message.includes('EROFS') || error.message.includes('read-only')) {
         return NextResponse.json(
-          { error: 'File system is read-only. This app requires a database or external storage for folder management in production.' },
+          { error: 'File system is read-only. Physical folder creation not supported in this environment.' },
           { status: 500 }
         );
       }
